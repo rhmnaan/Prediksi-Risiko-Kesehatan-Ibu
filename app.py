@@ -12,26 +12,18 @@ st.set_page_config(
 )
 
 # --- 1. Memuat Model, Scaler, dan LabelEncoder ---
-# Pastikan nama file sesuai dengan yang Anda simpan!
+# Hanya memuat model Decision Tree karena ini yang terbaik
 @st.cache_resource # Cache resource untuk menghindari pemuatan ulang setiap kali ada interaksi
 def load_assets():
-    models = {}
-    model_names = {
-        'K-Nearest Neighbors': 'k-nearest_neighbors_model.pkl',
-        'Gaussian Naive Bayes': 'gaussian_naive_bayes_model.pkl',
-        'Decision Tree': 'decision_tree_model.pkl'
-    }
-
-    for name, filename in model_names.items():
-        try:
-            models[name] = joblib.load(filename)
-            # st.success(f"Model {name} berhasil dimuat.")
-        except FileNotFoundError:
-            st.error(f"File model '{filename}' untuk {name} tidak ditemukan. Pastikan sudah ada di folder yang sama.")
-            st.stop()
-        except Exception as e:
-            st.error(f"Error memuat model {name} dari '{filename}': {e}")
-            st.stop()
+    try:
+        model = joblib.load('decision_tree_model.pkl')
+        # st.success("Model Decision Tree berhasil dimuat.")
+    except FileNotFoundError:
+        st.error("File model 'decision_tree_model.pkl' tidak ditemukan. Pastikan sudah ada di folder yang sama.")
+        st.stop()
+    except Exception as e:
+        st.error(f"Error memuat model Decision Tree: {e}")
+        st.stop()
 
     try:
         scaler = joblib.load('scaler.pkl')
@@ -44,28 +36,29 @@ def load_assets():
         st.error(f"Error memuat scaler/label encoder: {e}")
         st.stop()
 
-    return models, scaler, label_encoder
+    return model, scaler, label_encoder
 
-models, scaler, label_encoder = load_assets()
+# Memuat aset
+model, scaler, label_encoder = load_assets()
+model_name = "Decision Tree" # Menetapkan nama model yang digunakan
 
 # --- 2. Judul Aplikasi ---
 st.title('🏥 Aplikasi Prediksi Risiko Kesehatan Ibu')
-st.markdown('Aplikasi ini memprediksi tingkat risiko kesehatan ibu menggunakan beberapa model Machine Learning.')
+st.markdown(f'Aplikasi ini memprediksi tingkat risiko kesehatan ibu menggunakan model **{model_name}**.')
 
-# --- 3. Sidebar untuk Pemilihan Model dan Informasi ---
-st.sidebar.header('Pengaturan Aplikasi')
-selected_model_name = st.sidebar.selectbox(
-    'Pilih Model untuk Prediksi Utama:',
-    list(models.keys()) # Akan menampilkan 'K-Nearest Neighbors', 'Gaussian Naive Bayes', 'Decision Tree'
-)
-st.sidebar.write("---")
+# --- 3. Sidebar Informasi ---
+st.sidebar.header('Informasi')
 st.sidebar.info(
     "**Cara Penggunaan:**\n"
     "1. Masukkan nilai untuk setiap fitur pasien di kolom 'Input Data Pasien'.\n"
-    "2. Pilih model yang ingin Anda gunakan untuk prediksi utama.\n"
-    "3. Klik tombol 'Prediksi Risiko'.\n"
-    "4. Lihat hasil prediksi dari model yang dipilih dan perbandingan dengan model lain."
+    "2. Klik tombol 'Prediksi Risiko'.\n"
+    "3. Lihat hasil prediksi tingkat risiko kesehatan ibu."
 )
+st.sidebar.write("---")
+st.sidebar.markdown(f"""
+    **Model yang Digunakan:** {model_name}
+""")
+
 
 # --- 4. Input Pengguna ---
 st.header('Input Data Pasien')
@@ -95,55 +88,27 @@ if st.button('Prediksi Risiko', help="Klik untuk mendapatkan prediksi tingkat ri
         # --- Skalakan Input Pengguna dengan Scaler yang Sama! ---
         scaled_input_data = scaler.transform(input_data)
 
-        st.subheader('Hasil Prediksi Individual Model:')
-        # --- Prediksi Model yang Dipilih ---
-        st.markdown(f"#### Hasil dari Model Terpilih: {selected_model_name}")
-        selected_model = models[selected_model_name]
-        prediction_encoded_selected = selected_model.predict(scaled_input_data)
-        prediction_proba_selected = selected_model.predict_proba(scaled_input_data)
+        st.subheader('Hasil Prediksi:')
+        # --- Prediksi Menggunakan Model Decision Tree ---
+        prediction_encoded = model.predict(scaled_input_data)
+        prediction_proba = model.predict_proba(scaled_input_data) # Probabilitas untuk setiap kelas
 
-        predicted_risk_level_selected = label_encoder.inverse_transform(prediction_encoded_selected)[0]
+        predicted_risk_level = label_encoder.inverse_transform(prediction_encoded)[0]
 
-        if predicted_risk_level_selected == 'High Risk':
-            st.error(f"Tingkat Risiko: **{predicted_risk_level_selected}** 🚨")
-        elif predicted_risk_level_selected == 'Mid Risk':
-            st.warning(f"Tingkat Risiko: **{predicted_risk_level_selected}** ⚠️")
+        if predicted_risk_level == 'High Risk':
+            st.error(f"Tingkat Risiko: **{predicted_risk_level}** 🚨")
+        elif predicted_risk_level == 'Mid Risk':
+            st.warning(f"Tingkat Risiko: **{predicted_risk_level}** ⚠️")
         else:
-            st.success(f"Tingkat Risiko: **{predicted_risk_level_selected}** ✅")
+            st.success(f"Tingkat Risiko: **{predicted_risk_level}** ✅")
 
         st.write("Probabilitas untuk setiap tingkat risiko:")
-        proba_df_selected = pd.DataFrame(prediction_proba_selected, columns=label_encoder.classes_)
-        st.dataframe(proba_df_selected.T.rename(columns={0: 'Probabilitas'}))
-
-        st.markdown("---")
-
-        # --- Prediksi dari Semua Model untuk Perbandingan ---
-        st.subheader('Perbandingan Prediksi Antar Model:')
-
-        comparison_results = []
-        for name, model in models.items():
-            prediction_encoded = model.predict(scaled_input_data)
-            prediction_proba = model.predict_proba(scaled_input_data)
-            predicted_risk = label_encoder.inverse_transform(prediction_encoded)[0]
-
-            # Dapatkan probabilitas untuk kelas yang diprediksi
-            predicted_class_index = prediction_encoded[0]
-            confidence = prediction_proba[0][predicted_class_index]
-
-            comparison_results.append({
-                'Model': name,
-                'Prediksi Risiko': predicted_risk,
-                'Keyakinan (%)': f"{confidence * 100:.2f}%" # Probabilitas kelas prediksi
-            })
-
-        comparison_df = pd.DataFrame(comparison_results)
-        st.dataframe(comparison_df.set_index('Model'))
+        proba_df = pd.DataFrame(prediction_proba, columns=label_encoder.classes_)
+        st.dataframe(proba_df.T.rename(columns={0: 'Probabilitas'}))
 
         st.markdown("""
         ---
         **Catatan Penting:**
         * Aplikasi ini adalah demonstrasi dan tidak boleh digunakan sebagai pengganti diagnosis medis profesional.
-        * Perbedaan prediksi antar model mungkin terjadi karena algoritma yang berbeda belajar pola data dengan cara yang unik.
-        * "Keyakinan (%)" menunjukkan probabilitas model terhadap kelas yang diprediksi untuk input spesifik ini.
-        * Untuk menentukan "model mana yang paling benar", Anda perlu merujuk pada metrik evaluasi model (akurasi, F1-score, dll.) yang didapat saat melatih dan menguji model di Google Colab. Model dengan kinerja evaluasi terbaik secara umum dianggap paling andal.
+        * Model ini dilatih pada data historis dan kinerjanya mungkin bervariasi pada data baru.
         """)
